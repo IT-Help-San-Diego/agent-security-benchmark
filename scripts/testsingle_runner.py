@@ -127,7 +127,16 @@ def call_openrouter(model_key, payload_bytes, timeout=180):
     or_cfg = cfg.get("openrouter", {})
     key = or_cfg.get("api_key")
     if not key:
-        raise RuntimeError("openrouter.api_key missing in ~/.hermes/config.yaml")
+        env_path = os.path.expanduser("~/.hermes/.env")
+        if os.path.exists(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("OPENROUTER_API_KEY="):
+                        key = line.split("=", 1)[1]
+                        break
+    if not key:
+        raise RuntimeError("openrouter.api_key missing in ~/.hermes/config.yaml and ~/.hermes/.env")
     base = "https://openrouter.ai/api/v1"
     req = urllib.request.Request(
         f"{base}/chat/completions",
