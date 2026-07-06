@@ -1,0 +1,9 @@
+{
+  "ConnectionName": "Agent Security Benchmark",
+  "DatabaseType": "SQLite",
+  "Driver": "SQLite",
+  "DatabasePath": "/Users/careybalboa/Documents/GitHub/agent-security-benchmark/data/agent_security_benchmark.sqlite",
+  "DatabaseName": "agent_security_benchmark",
+  "tLSMode": 0,
+  "Enviroment": "local"
+}
