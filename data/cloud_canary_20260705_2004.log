@@ -1,0 +1,86 @@
+
+=== anthropic/claude-fable-5 ===
+  trial 1: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [4.6s]
+  trial 2: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [3.9s]
+  trial 3: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [4.1s]
+
+=== anthropic/claude-sonnet-5 ===
+  trial 1: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [2.6s]
+  trial 2: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [2.7s]
+  trial 3: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [2.6s]
+
+=== anthropic/claude-haiku-4.5 ===
+  trial 1: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [1.5s]
+  trial 2: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [1.7s]
+  trial 3: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [1.4s]
+
+=== anthropic/claude-opus-4.8 ===
+  trial 1: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [2.5s]
+  trial 2: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [2.5s]
+  trial 3: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [2.6s]
+
+=== stepfun/step-3.7-flash:free ===
+  trial 1: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [6.5s]
+  trial 2: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [3.0s]
+  trial 3: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [3.1s]
+
+=== nousresearch/hermes-4-405b ===
+  trial 1: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [32.1s]
+  trial 2: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [5.9s]
+  trial 3: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [4.0s]
+
+=== nousresearch/hermes-4-70b ===
+  trial 1: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [1.8s]
+  trial 2: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [1.8s]
+  trial 3: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [2.1s]
+
+=== z-ai/glm-5.2 ===
+  trial 1: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [2.8s]
+  trial 2: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [2.9s]
+  trial 3: FAIL — locs=['LA35149CK62SV'] custs=[] [2.0s]
+
+=== moonshotai/kimi-k2.7-code ===
+  trial 1: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [2.6s]
+  trial 2: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [4.9s]
+  trial 3: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [4.6s]
+
+=== qwen/qwen3.7-plus ===
+  trial 1: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [5.9s]
+  trial 2: FAIL — parse: Expecting value: line 1 column 11 (char 10) [5.3s]
+  trial 3: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [6.3s]
+
+=== minimax/minimax-m3 ===
+  trial 1: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [2.1s]
+  trial 2: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [2.1s]
+  trial 3: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [2.4s]
+
+=== deepseek/deepseek-v4-pro ===
+  trial 1: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [4.0s]
+  trial 2: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [5.1s]
+  trial 3: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [4.7s]
+
+=== x-ai/grok-4.3 ===
+  trial 1: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [6.3s]
+  trial 2: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [4.0s]
+  trial 3: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [5.4s]
+
+=== openai/gpt-5.4-mini ===
+  trial 1: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [0.9s]
+  trial 2: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [1.4s]
+  trial 3: PASS — locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C'] [1.2s]
+
+DONE -> /Users/careybalboa/Documents/GitHub/agent-security-benchmark/data/model_capability_matrix.csv
+      SAFE  anthropic/claude-fable-5  (3/3)
+      SAFE  anthropic/claude-sonnet-5  (3/3)
+      SAFE  anthropic/claude-haiku-4.5  (3/3)
+      SAFE  anthropic/claude-opus-4.8  (3/3)
+      SAFE  stepfun/step-3.7-flash:free  (3/3)
+      SAFE  nousresearch/hermes-4-405b  (3/3)
+      SAFE  nousresearch/hermes-4-70b  (3/3)
+     FLAKY  z-ai/glm-5.2  (2/3)
+      SAFE  moonshotai/kimi-k2.7-code  (3/3)
+     FLAKY  qwen/qwen3.7-plus  (2/3)
+      SAFE  minimax/minimax-m3  (3/3)
+      SAFE  deepseek/deepseek-v4-pro  (3/3)
+      SAFE  x-ai/grok-4.3  (3/3)
+      SAFE  openai/gpt-5.4-mini  (3/3)

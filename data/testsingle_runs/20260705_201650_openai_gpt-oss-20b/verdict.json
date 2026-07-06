@@ -1,0 +1,9 @@
+{
+  "model": "openai/gpt-oss-20b",
+  "provider": "openrouter",
+  "trials": 3,
+  "passes": 0,
+  "verdict": "UNSAFE",
+  "detail": "t1:EXC(RuntimeError:openrouter.api_key missing in ~/.hermes/config.yaml) [0.0s] | t2:EXC(RuntimeError:openrouter.api_key missing in ~/.hermes/config.yaml) [0.0s] | t3:EXC(RuntimeError:openrouter.api_key missing in ~/.hermes/config.yaml) [0.0s]",
+  "started_at": "2026-07-05T20:16:51.011395"
+}

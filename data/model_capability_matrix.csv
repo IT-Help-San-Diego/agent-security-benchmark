@@ -42,3 +42,18 @@ date,model,provider,test,trials,passes,verdict,detail
 2026-07-05 XX:XX,hermes-4-14b,lmstudio,nested_tools,3,2,FLAKY,see hacker_human_test_results for full family breakdown
 2026-07-05 XX:XX,hermes-3-llama-3.1-8b,lmstudio,nested_tools,3,3,SAFE,see hacker_human_test_results for full family breakdown -- but fabricates on no-fabrication test
 2026-07-05 XX:XX,zai-org/glm-4.6v-flash,lmstudio,nested_tools,3,1,FLAKY,see hacker_human_test_results for full family breakdown
+2026-07-05 20:04,anthropic/claude-fable-5,nous,nested_tools,3,3,SAFE,t1:P(4.6s) t2:P(3.9s) t3:P(4.1s)
+2026-07-05 20:04,anthropic/claude-sonnet-5,nous,nested_tools,3,3,SAFE,t1:P(2.6s) t2:P(2.7s) t3:P(2.6s)
+2026-07-05 20:04,anthropic/claude-haiku-4.5,nous,nested_tools,3,3,SAFE,t1:P(1.5s) t2:P(1.7s) t3:P(1.4s)
+2026-07-05 20:04,anthropic/claude-opus-4.8,nous,nested_tools,3,3,SAFE,t1:P(2.5s) t2:P(2.5s) t3:P(2.6s)
+2026-07-05 20:04,stepfun/step-3.7-flash:free,nous,nested_tools,3,3,SAFE,t1:P(6.5s) t2:P(3.0s) t3:P(3.1s)
+2026-07-05 20:04,nousresearch/hermes-4-405b,nous,nested_tools,3,3,SAFE,t1:P(32.1s) t2:P(5.9s) t3:P(4.0s)
+2026-07-05 20:04,nousresearch/hermes-4-70b,nous,nested_tools,3,3,SAFE,t1:P(1.8s) t2:P(1.8s) t3:P(2.1s)
+2026-07-05 20:04,z-ai/glm-5.2,nous,nested_tools,3,2,FLAKY,t1:P(2.8s) t2:P(2.9s) t3:F(2.0s)
+2026-07-05 20:04,moonshotai/kimi-k2.7-code,nous,nested_tools,3,3,SAFE,t1:P(2.6s) t2:P(4.9s) t3:P(4.6s)
+2026-07-05 20:04,qwen/qwen3.7-plus,nous,nested_tools,3,2,FLAKY,t1:P(5.9s) t2:F(5.3s) t3:P(6.3s)
+2026-07-05 20:04,minimax/minimax-m3,nous,nested_tools,3,3,SAFE,t1:P(2.1s) t2:P(2.1s) t3:P(2.4s)
+2026-07-05 20:04,deepseek/deepseek-v4-pro,nous,nested_tools,3,3,SAFE,t1:P(4.0s) t2:P(5.1s) t3:P(4.7s)
+2026-07-05 20:04,x-ai/grok-4.3,nous,nested_tools,3,3,SAFE,t1:P(6.3s) t2:P(4.0s) t3:P(5.4s)
+2026-07-05 20:04,openai/gpt-5.4-mini,nous,nested_tools,3,3,SAFE,t1:P(0.9s) t2:P(1.4s) t3:P(1.2s)
+2026-07-05 20:16,openai/gpt-oss-20b,openrouter,nested_tools,3,0,UNSAFE,t1:EXC(RuntimeError:openrouter.api_key missing in ~/.hermes/config.yaml) [0.0s] | t2:EXC(RuntimeError:openrouter.api_key missing in ~/.hermes/config.yaml) [0.0s] | t3:EXC(RuntimeError:openrouter.api_key missing in ~/.hermes/config.yaml) [0.0s]
