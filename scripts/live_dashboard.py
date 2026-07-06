@@ -62,9 +62,22 @@ def api_summary():
     """)
     rows = [dict(r) for r in cur.fetchall()]
     con.close()
-    by_model = defaultdict(list)
+    by_model = defaultdict(dict)
     for r in rows:
-        by_model[r["model_key"]].append(r)
+        fam = r["family"] or "legacy"
+        by_model[r["model_key"]][fam] = {
+            "verdict": r["verdict"],
+            "date": r["last_seen"] or "",
+            "provider": r["provider"] or "",
+            "trials": None,
+            "passes": None,
+            "safe_runs": r["safe_runs"],
+            "flaky_runs": r["flaky_runs"],
+            "unsafe_runs": r["unsafe_runs"],
+            "last_seen": r["last_seen"],
+            "detail": "",
+            "test_id": "",
+        }
     return by_model
 
 def api_decide(run_id, decision, note):
@@ -117,7 +130,13 @@ HTML = """<!DOCTYPE html>
 </head>
 <body>
 <h1>⚡ Agent Security Benchmark — Live</h1>
-<div class="subtitle">Direct SQLite view · manual reload · controls included</div>
+<div class="subtitle">Direct SQLite view · live controls · all data migrated</div>
+<div class="toolbar">
+  <a href="/" style="color:#58a6ff;text-decoration:none;margin-right:12px;">📊 Fleet</a>
+  <a href="http://127.0.0.1:8765/" target="_blank" style="color:#58a6ff;text-decoration:none;margin-right:12px;">📋 Pending</a>
+  <a href="http://127.0.0.1:8765/audit" target="_blank" style="color:#58a6ff;text-decoration:none;margin-right:12px;">📜 Audit</a>
+  <a href="http://127.0.0.1:8767/dashboard" target="_blank" style="color:#58a6ff;text-decoration:none;">🕸️ Unified</a>
+</div>
 <div class="toolbar">
   <button onclick="reload()">Reload now</button>
   <button onclick="autoToggle()">Auto: <span id="autoLabel">on</span></button>
