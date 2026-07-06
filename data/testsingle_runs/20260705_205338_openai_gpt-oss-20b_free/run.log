@@ -1,0 +1,5 @@
+TestSingle run: model=openai/gpt-oss-20b:free provider=local trials=3 started=2026-07-05T20:53:38.157
+  trial 1: t1:P(locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C']) [1.7s]
+  trial 2: t2:P(locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C']) [0.9s]
+  trial 3: t3:P(locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C']) [1.0s]
+RESULT verdict=SAFE passes=3/3 detail=t1:P(locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C']) [1.7s] | t2:P(locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C']) [0.9s] | t3:P(locs=['LA35149CK62SV'] custs=['2SNM9VKY1RVRB7QE3GMY1WEC6C']) [1.0s]
