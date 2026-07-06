@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-Live benchmark dashboard — lightweight, update-safe, repo-local.
+Live benchmark dashboard — three clean views, direct SQLite.
 
-- Reads agent_security_benchmark.sqlite directly
-- Serves HTML + JSON API
-- No Hermes coupling, no launchd, no magic paths
-- Start: python3 scripts/live_dashboard.py
-- Open: http://127.0.0.1:8768/
+Views:
+  /        → Fleet Dashboard (model summary + verdicts)
+  /queue   → Pending / test queue
+  /audit   → Audit trail / decisions
+
+Data: agent_security_benchmark.sqlite
+Start: python3 scripts/live_dashboard.py
 """
-import json, os, sqlite3, http.server, socketserver, time
+
+import json, os, sqlite3, http.server, socketserver
 from collections import defaultdict
 from datetime import datetime
 
@@ -16,37 +19,51 @@ REPO = os.path.expanduser("~/Documents/GitHub/agent-security-benchmark")
 DB_PATH = os.path.join(REPO, "data", "agent_security_benchmark.sqlite")
 PORT = 8768
 
-FAMILIES = [
-    ("nested_tools", "Nested Tool Calls"),
-    ("testsingle_main", "TestSingle Main"),
-    ("load_test", "Load Test"),
-    ("2_irrelevance_detection", "No-Fabrication"),
-    ("3_channel_judgment", "Channel Judgment"),
-    ("4_confused_deputy", "Confused Deputy"),
-    ("5_injected_instruction", "Injection Resistance"),
-    ("6_real_attachments", "Real Attachments"),
-]
+FAMILY_LABELS = {
+    "nested_tools": "Nested Tool Calls",
+    "testsingle_main": "TestSingle Main",
+    "load_test": "Load Test",
+    "2_irrelevance_detection": "No-Fabrication",
+    "3_channel_judgment": "Channel Judgment",
+    "4_confused_deputy": "Confused Deputy",
+    "5_injected_instruction": "Injection Resistance",
+    "6_real_attachments": "Real Attachments",
+}
+
 
 def db():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     return con
 
-def api_runs():
-    con = db()
-    cur = con.cursor()
-    cur.execute("""
-        SELECT r.id, r.model_key, r.provider, r.family, r.verdict, r.started_at, r.finished_at, r.status, r.detail,
-               COALESCE((SELECT COUNT(*) FROM trials t WHERE t.run_id=r.id),0) AS trials,
-               COALESCE((SELECT SUM(CASE WHEN t.passed=1 THEN 1 ELSE 0 END) FROM trials t WHERE t.run_id=r.id),0) AS passes
-        FROM runs r
-        ORDER BY r.id DESC
-    """)
-    rows = [dict(r) for r in cur.fetchall()]
-    con.close()
-    return rows
 
-def api_summary():
+def classify_provider(model, existing_provider):
+    if existing_provider:
+        return existing_provider
+    m = model.lower()
+    if any(m.startswith(p) for p in [
+        "anthropic/", "stepfun/", "nousresearch/", "z-ai/", "moonshotai/",
+        "minimax/", "deepseek/", "x-ai/", "openai/", "openrouter/",
+        "qwen/", "google/", "gemini/", "meta-llama/", "mistral/"
+    ]):
+        return "cloud"
+    return "local"
+
+
+def verdict_class(v):
+    v = (v or "").upper()
+    if v == "SAFE":
+        return "safe"
+    if v in ("UNSAFE", "FAIL"):
+        return "unsafe"
+    if v == "FLAKY":
+        return "flaky"
+    return "muted"
+
+
+# ── API helpers ──────────────────────────────────────────────────────────────
+
+def api_fleet():
     con = db()
     cur = con.cursor()
     cur.execute("""
@@ -62,13 +79,15 @@ def api_summary():
     """)
     rows = [dict(r) for r in cur.fetchall()]
     con.close()
+
     by_model = defaultdict(dict)
     for r in rows:
         fam = r["family"] or "legacy"
+        provider = r["provider"] or classify_provider(r["model_key"], None)
         by_model[r["model_key"]][fam] = {
             "verdict": r["verdict"],
             "date": r["last_seen"] or "",
-            "provider": r["provider"] or "",
+            "provider": provider,
             "trials": None,
             "passes": None,
             "safe_runs": r["safe_runs"],
@@ -76,190 +95,348 @@ def api_summary():
             "unsafe_runs": r["unsafe_runs"],
             "last_seen": r["last_seen"],
             "detail": "",
-            "test_id": "",
         }
     return by_model
 
-def api_decide(run_id, decision, note):
+
+def api_runs():
     con = db()
     cur = con.cursor()
-    cur.execute(
-        "INSERT INTO decisions (run_id, model_key, family, decided_at, decision, note) VALUES (?,?,?,?,?,?)",
-        (run_id, None, None, datetime.now().isoformat(timespec="milliseconds"), decision, note or ""),
-    )
-    con.commit()
+    cur.execute("""
+        SELECT r.id, r.model_key, r.provider, r.family, r.verdict,
+               r.started_at, r.finished_at, r.status, r.detail,
+               COALESCE((SELECT COUNT(*) FROM trials t WHERE t.run_id=r.id),0) AS trials,
+               COALESCE((SUM(CASE WHEN t.passed=1 THEN 1 ELSE 0 END)),0) AS passes
+        FROM runs r
+        LEFT JOIN trials t ON t.run_id = r.id
+        GROUP BY r.id
+        ORDER BY r.id DESC
+        LIMIT 200
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
     con.close()
-    return {"ok": True}
+    return rows
 
-HTML = """<!DOCTYPE html>
+
+def api_decisions():
+    con = db()
+    cur = con.cursor()
+    cur.execute("""
+        SELECT id, run_id, model_key, family, decided_at, decision, note
+        FROM decisions
+        ORDER BY id DESC
+        LIMIT 200
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
+    con.close()
+    return rows
+
+
+# ── HTML views ───────────────────────────────────────────────────────────────
+
+def fleet_html(data, runs):
+    family_order = [
+        "nested_tools", "testsingle_main", "load_test",
+        "2_irrelevance_detection", "3_channel_judgment",
+        "4_confused_deputy", "5_injected_instruction", "6_real_attachments"
+    ]
+    family_label = {
+        "nested_tools": "Nested Tool Calls",
+        "testsingle_main": "TestSingle Main",
+        "load_test": "Load Test",
+        "2_irrelevance_detection": "No-Fabrication",
+        "3_channel_judgment": "Channel Judgment",
+        "4_confused_deputy": "Confused Deputy",
+        "5_injected_instruction": "Injection Resistance",
+        "6_real_attachments": "Real Attachments",
+    }
+
+    cards = []
+    for model, families in sorted(data.items()):
+        provider_badge = "🏠 Local"
+        sample = next(iter(families.values()), {})
+        if sample.get("provider") == "cloud" or sample.get("provider") == "openrouter":
+            provider_badge = "☁️ Cloud"
+
+        safe_runs = sum((f.get("safe_runs") or 0) for f in families.values())
+        flaky_runs = sum((f.get("flaky_runs") or 0) for f in families.values())
+        unsafe_runs = sum((f.get("unsafe_runs") or 0) for f in families.values())
+
+        rows = ""
+        for fam in family_order:
+            f = families.get(fam)
+            if not f:
+                continue
+            rows += (
+                "<tr>"
+                f"<td>{family_label.get(fam, fam)}</td>"
+                f"<td><span class=\"pill {verdict_class(f.get('verdict'))}\">{f.get('verdict') or '—'}</span></td>"
+                f"<td class=\"mono\">{f.get('date','')}</td>"
+                f"<td>{f.get('trials') or '—'}</td>"
+                "</tr>"
+            )
+
+        cards.append(
+            "<div class=\"card\">"
+            f"<h3>{model} <span class=\"muted\">{provider_badge}</span></h3>"
+            "<div class=\"kpis\">"
+            f"<span class=\"pill safe\">SAFE {safe_runs}</span>"
+            f"<span class=\"pill flaky\">FLAKY {flaky_runs}</span>"
+            f"<span class=\"pill unsafe\">UNSAFE {unsafe_runs}</span>"
+            "</div>"
+            "<div style=\"overflow-x:auto\"><table>"
+            "<thead><tr><th>Family</th><th>Verdict</th><th>Last</th><th>Trials</th></tr></thead>"
+            f"<tbody>{rows}</tbody>"
+            "</table></div>"
+            "</div>"
+        )
+
+    timeline = ""
+    for r in runs[:20]:
+        timeline += (
+            "<tr>"
+            f"<td class=\"mono\">{r['model_key']}</td>"
+            f"<td>{r['family']}</td>"
+            f"<td><span class=\"pill {verdict_class(r['verdict'])}\">{r['verdict']}</span></td>"
+            f"<td class=\"mono\">{r['started_at']}</td>"
+            f"<td class=\"mono\">{r.get('trials', '—')}/{r.get('passes', '—')}</td>"
+            "</tr>"
+        )
+
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agent Security Benchmark — Live</title>
+<title>Fleet — Agent Security Benchmark</title>
 <style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body { background:#0b0f13; color:#e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin:0; padding:24px; line-height:1.45; }
-  h1 { font-size:1.4rem; margin:0 0 6px; }
-  .subtitle { color:#8b949e; font-size:0.85rem; margin-bottom:18px; }
-  .toolbar { display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
-  .toolbar button { background:#161b22; color:#e6edf3; border:1px solid #30363d; padding:8px 10px; border-radius:8px; cursor:pointer; }
-  .toolbar button:hover { background:#21262d; }
-  .status { color:#8b949e; font-size:0.82rem; }
-  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:14px; }
-  .card { background:#111820; border:1px solid #1f2937; border-radius:10px; padding:14px; }
-  .card h3 { margin:0 0 8px; font-size:0.92rem; color:#c9d1d9; word-break:break-all; }
-  .kpis { display:flex; gap:10px; margin-bottom:8px; }
-  .pill { padding:4px 8px; border-radius:999px; font-size:0.8rem; font-weight:600; }
-  .safe { background:#11301e; color:#4ade80; }
-  .flaky { background:#3b2e00; color:#fbbf24; }
-  .unsafe { background:#3b1515; color:#f87171; }
-  .muted { background:#161b22; color:#8b949e; }
-  table { width:100%; border-collapse:collapse; font-size:0.82rem; margin-top:4px; }
-  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid #1f2937; }
-  th { color:#8b949e; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; font-size:0.72rem; }
-  .mono { font-family:'SF Mono', Consolas, monospace; }
-  .actions { display:flex; gap:8px; margin-top:8px; }
-  .actions button { padding:6px 10px; border-radius:6px; border:1px solid #30363d; background:#161b22; color:#e6edf3; cursor:pointer; }
-  .actions button:hover { background:#21262d; }
-  .approve { border-color:#2f3f2f; color:#4ade80; }
-  .reject { border-color:#3f2f2f; color:#f87171; }
-  .note { width:100%; margin-top:6px; padding:8px; background:#0b0f13; color:#e6edf3; border:1px solid #30363d; border-radius:6px; }
+  :root {{ color-scheme: dark; }}
+  * {{ box-sizing: border-box; }}
+  body {{ background:#0b0f13; color:#e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin:0; padding:24px; line-height:1.45; }}
+  h1 {{ font-size:1.3rem; margin:0 0 4px; }}
+  .subtitle {{ color:#8b949e; font-size:0.82rem; margin-bottom:18px; }}
+  .nav a {{ color:#58a6ff; text-decoration:none; margin-right:14px; font-size:0.88rem; }}
+  .nav a.active {{ color:#e6edf3; font-weight:700; border-bottom:2px solid #58a6ff; padding-bottom:3px; }}
+  .grid {{ display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:14px; }}
+  .card {{ background:#111820; border:1px solid #1f2937; border-radius:10px; padding:14px; }}
+  .card h3 {{ margin:0 0 8px; font-size:0.92rem; color:#c9d1d9; word-break:break-all; }}
+  .muted {{ color:#8b949e; font-weight:400; font-size:0.85rem; }}
+  table {{ width:100%; border-collapse:collapse; font-size:0.78rem; margin-top:6px; }}
+  th, td {{ text-align:left; padding:6px 8px; border-bottom:1px solid #1f2937; }}
+  th {{ color:#8b949e; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; font-size:0.7rem; }}
+  .pill {{ padding:3px 8px; border-radius:999px; font-size:0.75rem; font-weight:600; }}
+  .safe {{ background:#11301e; color:#4ade80; }}
+  .flaky {{ background:#3b2e00; color:#fbbf24; }}
+  .unsafe {{ background:#3b1515; color:#f87171; }}
+  .muted {{ background:#161b22; color:#8b949e; }}
+  .section {{ margin-top:28px; }}
 </style>
 </head>
 <body>
-<h1>⚡ Agent Security Benchmark — Live</h1>
-<div class="subtitle">Direct SQLite view · live controls · all data migrated</div>
-<div class="toolbar">
-  <a href="/" style="color:#58a6ff;text-decoration:none;margin-right:12px;">📊 Fleet</a>
-  <a href="http://127.0.0.1:8765/" target="_blank" style="color:#58a6ff;text-decoration:none;margin-right:12px;">📋 Pending</a>
-  <a href="http://127.0.0.1:8765/audit" target="_blank" style="color:#58a6ff;text-decoration:none;margin-right:12px;">📜 Audit</a>
-  <a href="http://127.0.0.1:8767/dashboard" target="_blank" style="color:#58a6ff;text-decoration:none;">🕸️ Unified</a>
+<h1>📊 Model Fleet</h1>
+<div class="subtitle">Live from SQLite · refreshed on reload</div>
+<div class="nav">
+  <a href="/" class="active">Fleet</a>
+  <a href="/queue">Pending Queue</a>
+  <a href="/audit">Audit Trail</a>
 </div>
-<div class="toolbar">
-  <button onclick="reload()">Reload now</button>
-  <button onclick="autoToggle()">Auto: <span id="autoLabel">on</span></button>
-  <span class="status" id="status">loading…</span>
+<div class="grid">
+  {''.join(cards) if cards else '<div class="card">No model data yet.</div>'}
 </div>
-<div id="app" class="grid">Loading…</div>
-<script>
-const API = '/api';
-let auto = true;
-let timer = null;
-function status(msg) { document.getElementById('status').textContent = msg; }
-function autoToggle() {
-  auto = !auto;
-  document.getElementById('autoLabel').textContent = auto ? 'on' : 'off';
-  if (auto) schedule(); else clearTimeout(timer);
-}
-function schedule() { if (!auto) return; timer = setTimeout(reload, 1500); }
-async function reload() {
-  status('loading…');
-  try {
-    const res = await fetch(API + '?ts=' + Date.now(), {headers:{'Cache-Control':'no-store'}});
-    const data = await res.json();
-    render(data);
-    status('updated ' + new Date().toLocaleTimeString());
-  } catch (e) {
-    status('error: ' + e.message);
-  }
-  schedule();
-}
-function verdictClass(v) {
-  v = (v||'').toUpperCase();
-  if (v==='SAFE') return 'safe';
-  if (v==='UNSAFE'||v==='FAIL') return 'unsafe';
-  if (v==='FLAKY') return 'flaky';
-  return 'muted';
-}
-function render(data) {
-  const app = document.getElementById('app');
-  app.innerHTML = '';
-  const order = ['nested_tools','testsingle_main','load_test','2_irrelevance_detection','3_channel_judgment','4_confused_deputy','5_injected_instruction','6_real_attachments'];
-  const label = {nested_tools:'Nested Tool Calls',testsingle_main:'TestSingle Main',load_test:'Load Test','2_irrelevance_detection':'No-Fabrication','3_channel_judgment':'Channel Judgment','4_confused_deputy':'Confused Deputy','5_injected_instruction':'Injection Resistance','6_real_attachments':'Real Attachments'};
-  for (const [model, families] of Object.entries(data.summary)) {
-    const card = document.createElement('div');
-    card.className = 'card';
-    const latest = Object.values(families).sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
-    const provider = latest && latest.provider ? (latest.provider==='openrouter'?'☁️ OpenRouter':'🏠 Local') : '';
-    const safeRuns = latest && latest.safe_runs != null ? latest.safe_runs : Object.values(families).filter(f=>f.verdict==='SAFE').length;
-    const flakyRuns = latest && latest.flaky_runs != null ? latest.flaky_runs : Object.values(families).filter(f=>f.verdict==='FLAKY').length;
-    const unsafeRuns = latest && latest.unsafe_runs != null ? latest.unsafe_runs : Object.values(families).filter(f=>f.verdict==='UNSAFE').length;
-    let rows = '';
-    for (const fam of order) {
-      const f = families[fam];
-      if (!f) continue;
-      rows += `<tr><td>${label[fam]||fam}</td><td><span class="pill ${verdictClass(f.verdict)}">${f.verdict||'—'}</span></td><td class="mono">${f.date||''}</td><td>${f.trials||0}/${f.passes||0}</td></tr>`;
-    }
-    card.innerHTML = `
-      <h3>${model} <span style="font-weight:400;color:#8b949e;">${provider}</span></h3>
-      <div class="kpis">
-        <span class="pill safe">SAFE ${safeRuns}</span>
-        <span class="pill flaky">FLAKY ${flakyRuns}</span>
-        <span class="pill unsafe">UNSAFE ${unsafeRuns}</span>
-      </div>
-      <table>
-        <thead><tr><th>Family</th><th>Verdict</th><th>Last</th><th>Trials</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <div class="actions">
-        <button class="approve" onclick="decide('${model}','approved')">Approve</button>
-        <button class="reject" onclick="decide('${model}','rejected')">Reject</button>
-      </div>
-      <input class="note" id="note-${model.replace(/[^a-z0-9]/gi,'_')}" placeholder="Optional note…" />
-    `;
-    app.appendChild(card);
-  }
-}
-async function decide(model, decision) {
-  const key = 'note-' + model.replace(/[^a-z0-9]/gi,'_');
-  const note = document.getElementById(key).value || '';
-  status('saving…');
-  try {
-    await fetch('/api/decide', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({model_key:model, decision, note})});
-    reload();
-  } catch (e) { status('save failed: ' + e.message); }
-}
-reload();
-</script>
+<div class="section">
+  <h2>Latest Runs</h2>
+  <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>Model</th><th>Family</th><th>Verdict</th><th>Started</th><th>Trials</th></tr></thead>
+      <tbody>{''.join(timeline) if timeline else '<tr><td colspan="5">No runs.</td></tr>'}</tbody>
+    </table>
+  </div>
+</div>
 </body>
-</html>
-"""
+</html>"""
+
+
+def queue_html(items):
+    rows = ""
+    for r in items:
+        rows += (
+            "<tr>"
+            f"<td class=\"mono\">{r['model_key']}</td>"
+            f"<td>{r['family']}</td>"
+            f"<td><span class=\"pill {verdict_class(r['verdict'])}\">{r['verdict']}</span></td>"
+            f"<td class=\"mono\">{r['started_at']}</td>"
+            "</tr>"
+        )
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pending Queue — Agent Security Benchmark</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  * {{ box-sizing: border-box; }}
+  body {{ background:#0b0f13; color:#e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin:0; padding:24px; line-height:1.45; }}
+  h1 {{ font-size:1.3rem; margin:0 0 4px; }}
+  .subtitle {{ color:#8b949e; font-size:0.82rem; margin-bottom:18px; }}
+  .nav a {{ color:#58a6ff; text-decoration:none; margin-right:14px; font-size:0.88rem; }}
+  .nav a.active {{ color:#e6edf3; font-weight:700; border-bottom:2px solid #58a6ff; padding-bottom:3px; }}
+  table {{ width:100%; border-collapse:collapse; font-size:0.82rem; }}
+  th, td {{ text-align:left; padding:8px 10px; border-bottom:1px solid #1f2937; }}
+  th {{ color:#8b949e; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; font-size:0.72rem; }}
+  .muted {{ color:#8b949e; }}
+  .pill {{ padding:3px 8px; border-radius:999px; font-size:0.75rem; font-weight:600; }}
+  .safe {{ background:#11301e; color:#4ade80; }}
+  .flaky {{ background:#3b2e00; color:#fbbf24; }}
+  .unsafe {{ background:#3b1515; color:#f87171; }}
+  .muted {{ background:#161b22; color:#8b949e; }}
+</style>
+</head>
+<body>
+<h1>📋 Pending Queue</h1>
+<div class="subtitle">Recent model-runs feed · refreshed on reload</div>
+<div class="nav">
+  <a href="/">Fleet</a>
+  <a href="/queue" class="active">Pending Queue</a>
+  <a href="/audit">Audit Trail</a>
+</div>
+<div style="overflow-x:auto">
+  <table>
+    <thead><tr><th>Model</th><th>Family</th><th>Verdict</th><th>Started</th></tr></thead>
+    <tbody>{rows if rows else '<tr><td colspan="4">Queue empty.</td></tr>'}</tbody>
+  </table>
+</div>
+</body>
+</html>"""
+
+
+def audit_html(decisions, runs):
+    rows = ""
+    for d in decisions:
+        rows += (
+            "<tr>"
+            f"<td class=\"mono\">{d.get('model_key') or '—'}</td>"
+            f"<td>{d.get('family') or '—'}</td>"
+            f"<td>{d.get('decision')}</td>"
+            f"<td class=\"mono\">{d.get('decided_at')}</td>"
+            f"<td>{d.get('note') or ''}</td>"
+            "</tr>"
+        )
+
+    latest_runs = ""
+    for r in runs[:20]:
+        latest_runs += (
+            "<tr>"
+            f"<td class=\"mono\">{r['model_key']}</td>"
+            f"<td><span class=\"pill {verdict_class(r['verdict'])}\">{r['verdict']}</span></td>"
+            f"<td class=\"mono\">{r['started_at']}</td>"
+            "</tr>"
+        )
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audit Trail — Agent Security Benchmark</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  * {{ box-sizing: border-box; }}
+  body {{ background:#0b0f13; color:#e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin:0; padding:24px; line-height:1.45; }}
+  h1 {{ font-size:1.3rem; margin:0 0 4px; }}
+  .subtitle {{ color:#8b949e; font-size:0.82rem; margin-bottom:18px; }}
+  .nav a {{ color:#58a6ff; text-decoration:none; margin-right:14px; font-size:0.88rem; }}
+  .nav a.active {{ color:#e6edf3; font-weight:700; border-bottom:2px solid #58a6ff; padding-bottom:3px; }}
+  table {{ width:100%; border-collapse:collapse; font-size:0.82rem; }}
+  th, td {{ text-align:left; padding:8px 10px; border-bottom:1px solid #1f2937; }}
+  th {{ color:#8b949e; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; font-size:0.72rem; }}
+  .pill {{ padding:3px 8px; border-radius:999px; font-size:0.75rem; font-weight:600; }}
+  .safe {{ background:#11301e; color:#4ade80; }}
+  .flaky {{ background:#3b2e00; color:#fbbf24; }}
+  .unsafe {{ background:#3b1515; color:#f87171; }}
+  .muted {{ background:#161b22; color:#8b949e; }}
+  .section {{ margin-top:28px; }}
+</style>
+</head>
+<body>
+<h1>📜 Audit Trail</h1>
+<div class="subtitle">Decisions and live verdict feed</div>
+<div class="nav">
+  <a href="/">Fleet</a>
+  <a href="/queue">Pending Queue</a>
+  <a href="/audit" class="active">Audit Trail</a>
+</div>
+<div>
+  <h2>Decisions</h2>
+  <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>Model</th><th>Family</th><th>Decision</th><th>Decided</th><th>Note</th></tr></thead>
+      <tbody>{rows if rows else '<tr><td colspan="5">No decisions recorded yet.</td></tr>'}</tbody>
+    </table>
+  </div>
+</div>
+<div class="section">
+  <h2>Latest Verdicts</h2>
+  <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>Model</th><th>Verdict</th><th>Started</th></tr></thead>
+      <tbody>{latest_runs if latest_runs else '<tr><td colspan="3">No runs.</td></tr>'}</tbody>
+    </table>
+  </div>
+</div>
+</body>
+</html>"""
+
+
+# ── Server ───────────────────────────────────────────────────────────────────
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, message, *args):
         pass
 
+    def _send_html(self, body):
+        payload = body.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
     def _send_json(self, obj):
-        body = json.dumps(obj, indent=2).encode("utf-8")
+        payload = json.dumps(obj, indent=2).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(body)
+        self.wfile.write(payload)
 
     def do_GET(self):
-        if self.path == "/" or self.path == "/index.html":
-            body = HTML.encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+        fleet_data = api_fleet()
+        runs = api_runs()
+
+        if self.path in ("/", "/fleet"):
+            self._send_html(fleet_html(fleet_data, runs))
             return
-        if self.path.startswith("/api"):
-            if self.path.startswith("/api/decide"):
-                self.send_response(404)
-                self.end_headers()
-                return
-            data = {
-                "summary": api_summary(),
-                "runs": api_runs(),
-                "generated_at": datetime.now().isoformat(timespec="seconds"),
-            }
-            self._send_json(data)
+
+        if self.path == "/queue":
+            self._send_html(queue_html(runs))
             return
+
+        if self.path == "/audit":
+            decisions = api_decisions()
+            self._send_html(audit_html(decisions, runs))
+            return
+
+        if self.path == "/api/fleet":
+            self._send_json({"summary": fleet_data, "runs": runs})
+            return
+        if self.path == "/api/runs":
+            self._send_json(runs)
+            return
+        if self.path == "/api/decisions":
+            self._send_json(api_decisions())
+            return
+
         self.send_response(404)
         self.end_headers()
 
@@ -267,11 +444,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path == "/api/decide":
             length = int(self.headers.get("Content-Length", 0))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            result = api_decide(payload.get("run_id"), payload.get("decision"), payload.get("note"))
-            self._send_json(result)
+            con = db()
+            cur = con.cursor()
+            cur.execute(
+                "INSERT INTO decisions (model_key, family, decided_at, decision, note) VALUES (?,?,?,?,?)",
+                (
+                    payload.get("model_key"),
+                    payload.get("family"),
+                    datetime.now().isoformat(timespec="milliseconds"),
+                    payload.get("decision", ""),
+                    payload.get("note", "") or "",
+                ),
+            )
+            con.commit()
+            con.close()
+            self._send_json({"ok": True})
             return
+
         self.send_response(404)
         self.end_headers()
+
 
 def main():
     class ReusableServer(socketserver.ThreadingTCPServer):
@@ -279,6 +471,7 @@ def main():
     with ReusableServer(("127.0.0.1", PORT), Handler) as httpd:
         print(f"Live dashboard running at http://127.0.0.1:{PORT}/")
         httpd.serve_forever()
+
 
 if __name__ == "__main__":
     main()
