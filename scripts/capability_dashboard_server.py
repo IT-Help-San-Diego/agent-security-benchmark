@@ -3,32 +3,26 @@
 Model Capability Dashboard Server — local-only, zero-dependency (stdlib only).
 
 Serves a LIVE, auto-refreshing, dark-mode dashboard of model safety results,
-reading directly from the two growing CSV files every request (no manual
-regeneration step, no stale snapshots). Same pattern as moderation_server.py.
-
-Sources read fresh on every page load:
-  ~/Documents/GitHub/agent-security-benchmark/data/model_capability_matrix.csv     -- raw nested-tools canary (Family 1)
-  ~/Documents/GitHub/agent-security-benchmark/data/hacker_human_test_results.csv   -- Families 2-6 (irrelevance, channel
-                                                  judgment, confused-deputy, injection
-                                                  resistance, real-attachment tests)
-
-Usage:
-  python3 capability_dashboard_server.py     # starts on :8766
-  Open http://127.0.0.1:8766/ in a browser, or embed via Obsidian iframe/link.
+reading directly from the SQLite benchmark DB on every request.
 """
-import csv, http.server, socketserver, os, json
+import json, os, sqlite3, http.server, socketserver
 from collections import defaultdict
 from datetime import datetime
 
 PORT = 8766
-MATRIX_CSV = os.path.expanduser("~/Documents/GitHub/agent-security-benchmark/data/model_capability_matrix.csv")
-HACKER_CSV = os.path.expanduser("~/Documents/GitHub/agent-security-benchmark/data/hacker_human_test_results.csv")
+DB_PATH = os.path.expanduser("~/Documents/GitHub/agent-security-benchmark/data/agent_security_benchmark.sqlite")
 
-def read_csv(path):
-    if not os.path.exists(path):
-        return []
-    with open(path, newline="") as f:
-        return list(csv.DictReader(f))
+FAMILY_LABELS = {
+    "1_nested_tool_calling": "1. Nested Tool Calls",
+    "nested_tools": "1. Nested Tool Calls",
+    "load_test": "Load Test",
+    "testsingle_main": "TestSingle Main",
+    "2_irrelevance_detection": "2. No-Fabrication",
+    "3_channel_judgment": "3. Channel Judgment",
+    "4_confused_deputy": "4. Confused Deputy",
+    "5_injected_instruction": "5. Injection Resistance",
+    "6_real_attachments": "6. Real Attachments",
+}
 
 def verdict_class(v):
     v = (v or "").upper()
@@ -40,25 +34,46 @@ def verdict_class(v):
         return "flaky"
     return "other"
 
+def db_rows():
+    if not os.path.exists(DB_PATH):
+        return []
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    cur.execute("""
+        SELECT r.model_key, r.provider, r.family, r.verdict, r.started_at, r.detail,
+               COALESCE((SELECT MAX(t.trial_index) FROM trials t WHERE t.run_id=r.id), 0) AS trials,
+               COALESCE((SELECT SUM(CASE WHEN t.passed=1 THEN 1 ELSE 0 END) FROM trials t WHERE t.run_id=r.id), 0) AS passes
+        FROM runs r
+        WHERE r.status = 'completed' OR r.status = 'crashed'
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
+    con.close()
+    return rows
+
 def build_model_summary():
-    """Merge both CSVs into a per-model rollup: verdict per test family, latest result wins."""
-    rows = read_csv(MATRIX_CSV) + read_csv(HACKER_CSV)
-    # Normalize: matrix CSV uses 'test' column (older) or no family; hacker CSV uses 'family'
+    """Return per-model rollup from SQLite benchmark DB."""
+    rows = db_rows()
     per_model = defaultdict(lambda: {"families": {}, "provider": "", "last_seen": ""})
     for r in rows:
-        model = r.get("model", "unknown")
-        family = r.get("family") or r.get("test") or "1_nested_tool_calling"
-        verdict = r.get("verdict", "?")
-        date = r.get("date", "")
-        provider = r.get("provider", "")
+        model = r.get("model_key") or "unknown"
+        family = r.get("family") or "nested_tools"
+        verdict = r.get("verdict") or "?"
+        date = r.get("started_at") or ""
+        provider = r.get("provider") or ""
         entry = per_model[model]
         if provider:
             entry["provider"] = provider
-        # Keep the LATEST result per family (by date string, ISO-ish sortable)
         existing = entry["families"].get(family)
         if not existing or date >= existing.get("date", ""):
-            entry["families"][family] = {"verdict": verdict, "date": date,
-                                          "detail": r.get("detail", ""), "test_id": r.get("test_id", "")}
+            entry["families"][family] = {
+                "verdict": verdict,
+                "date": date,
+                "detail": r.get("detail", ""),
+                "test_id": "",
+                "trials": r.get("trials", 0),
+                "passes": r.get("passes", 0),
+            }
         if date > entry["last_seen"]:
             entry["last_seen"] = date
     return per_model
@@ -77,20 +92,14 @@ FAMILY_LABELS = {
 def classify_provider(model, existing_provider):
     if existing_provider:
         return existing_provider
-    cloud_markers = ["anthropic/", "stepfun/", "nousresearch/", "z-ai/", "moonshotai/",
-                      "minimax/", "deepseek/", "x-ai/", "openai/gpt-5", "qwen/qwen3.7-plus"]
-    if any(model.startswith(m) or m in model for m in cloud_markers) and "nous" not in model.lower().replace("nousresearch",""):
-        pass
-    # Simplify: if it matches a known Nous cloud slug pattern, call it cloud; else local
+    m = model.lower()
+    if any(m.startswith(p) for p in ["anthropic/", "stepfun/", "nousresearch/", "z-ai/", "moonshotai/", "minimax/", "deepseek/", "x-ai/", "openai/", "openrouter/", "qwen/", "google/", "gemini/", "meta-llama/", "mistral/"]):
+        return "cloud"
     known_cloud_exact = {
-        "anthropic/claude-fable-5","anthropic/claude-sonnet-5","anthropic/claude-haiku-4.5",
-        "anthropic/claude-opus-4.8","stepfun/step-3.7-flash:free","nousresearch/hermes-4-70b",
-        "nousresearch/hermes-4-405b","z-ai/glm-5.2","moonshotai/kimi-k2.7-code",
-        "qwen/qwen3.7-plus","minimax/minimax-m3","deepseek/deepseek-v4-pro",
-        "openai/gpt-5.4-mini","x-ai/grok-4.3","step-3.7-flash@q8_0 / @bf16 (local GGUF)",
+        "step-3.7-flash@q8_0 / @bf16 (local gguf)",
     }
     if model in known_cloud_exact:
-        return "nous"
+        return "cloud"
     return "lmstudio"
 
 def render_dashboard_fragment():
@@ -153,7 +162,7 @@ def render_dashboard_fragment():
 
 <div class="fleet-footer">
   Generated {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} &middot;
-  Sources: <code>{MATRIX_CSV}</code>, <code>{HACKER_CSV}</code>
+  Source: <code>{DB_PATH}</code>
 </div>"""
 
 def render_dashboard():
@@ -204,7 +213,7 @@ def render_dashboard():
 </head>
 <body>
 <h1>🦉 Hermes Model Capability Dashboard</h1>
-<div class="subtitle">Live from model_capability_matrix.csv + hacker_human_test_results.csv &middot; auto-refreshes every 20s &middot; hover a cell for detail</div>
+<div class="subtitle">Live from agent_security_benchmark.sqlite &middot; refresh page to reload latest results</div>
 <div class="nav">
   <a href="http://127.0.0.1:8765/">📋 Pending Queue</a>
   <a href="http://127.0.0.1:8765/audit">📜 Audit Trail</a>
